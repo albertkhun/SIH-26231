@@ -1,0 +1,21 @@
+{
+  "_note": "Fill ONLY with values measured from each kit's own published colour chart. null = not yet measured. Reference lab = CIELAB D65.",
+  "scott": {
+    "name": "Scott",
+    "timer": { "minSeconds": null, "maxSeconds": null },
+    "references": [
+      { "outcome": "positive", "label": "Positive", "lab": null },
+      { "outcome": "negative", "label": "Negative", "lab": null }
+    ],
+    "thresholds": { "tClose": null, "tMargin": null }
+  },
+  "simons": {
+    "name": "Simon's",
+    "timer": { "minSeconds": null, "maxSeconds": null },
+    "references": [
+      { "outcome": "positive", "label": "Positive", "lab": null },
+      { "outcome": "negative", "label": "Negative", "lab": null }
+    ],
+    "thresholds": { "tClose": null, "tMargin": null }
+  }
+}

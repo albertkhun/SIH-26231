@@ -1,0 +1,11 @@
+{
+  "_note": "Quality-gate thresholds. All null until set from real device testing. Metrics are computed on the perspective-corrected card image.",
+  "warpWidthPx": null,
+  "blurLaplacianVarMin": null,
+  "saturationLevel": null,
+  "glareSaturatedFractionMax": null,
+  "clipLowLevel": null,
+  "clipHighLevel": null,
+  "clippedFractionMax": null,
+  "tiltDegMax": null
+}

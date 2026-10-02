@@ -1,0 +1,9 @@
+{
+  "_note": "Geometry and patch values of YOUR printed reference card, in one unit (e.g. mm). Marker corners must be in the order js-aruco2 reports them (clockwise). Patch lab = CIELAB D65 measured once per print batch with a ColorChecker/colorimeter. If every patch lab is null but a patch has role 'white', white-balance-only fallback is used (no absolute accuracy claim).",
+  "cardId": null,
+  "dictionary": null,
+  "bounds": null,
+  "markers": [],
+  "patches": [],
+  "testArea": null
+}
