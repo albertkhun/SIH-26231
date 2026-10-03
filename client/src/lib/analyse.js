@@ -19,21 +19,28 @@ function sample(src, w, h, x, y, out, o) { // bilinear
 // Detect markers, fit homography (card -> image), flatten card, compute quality metrics.
 export function processFrame(source, cfg) {
   const { card, quality: q } = cfg;
-  const sw = source.videoWidth || source.width, sh = source.videoHeight || source.height, k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
-  const w = Math.round(sw * k), h = Math.round(sh * k), cv = document.createElement('canvas');
-  cv.width = w; cv.height = h;
-  const ctx = cv.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, w, h);
-  const img = ctx.getImageData(0, 0, w, h);
+  // Detect at full analysis size first, then at a smaller size (helps with screen photos / moiré / small cards).
+  const sw = source.videoWidth || source.width, sh = source.videoHeight || source.height;
   const det = (detectors[card.dictionary] ||= new AR.Detector({ dictionaryName: card.dictionary }));
-  const byId = Object.fromEntries(det.detect(img).map((m) => [m.id, m]));
-  const found = card.markers.filter((m) => byId[m.id]);
-  const out = { detected: found.length, expected: card.markers.length, width: w, height: h };
+  let best = null;
+  for (const side of [MAX_SIDE, 640]) {
+    const k = Math.min(1, side / Math.max(sw, sh)), w = Math.round(sw * k), h = Math.round(sh * k), cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(source, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h), all = det.detect(img), byId = Object.fromEntries(all.map((m) => [m.id, m]));
+    const found = card.markers.filter((m) => byId[m.id]);
+    if (!best || found.length > best.found.length) best = { img, w, h, byId, found, seenIds: [...new Set(all.map((m) => m.id))].sort((x, y) => x - y) };
+    if (found.length === card.markers.length) break;
+  }
+  const { img, w, h, byId, found } = best;
+  const out = { detected: found.length, expected: card.markers.length, width: w, height: h, expectedIds: card.markers.map((m) => m.id), seenIds: best.seenIds };
   if (found.length < card.markers.length) return out;
   const src = found.flatMap((m) => m.corners), dst = found.flatMap((m) => byId[m.id].corners.map((c) => [c.x, c.y]));
   const map = homography(src, dst), [x0, y0, x1, y1] = card.bounds;
   const quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((p) => map(...p));
-  out.inFrame = quad.every(([x, y]) => x >= 0 && y >= 0 && x <= w && y <= h);
+  const ta = card.testArea, tc = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => map(ta.center[0] + (i * ta.size[0]) / 2, ta.center[1] + (j * ta.size[1]) / 2));
+  out.inFrame = [...src.map((pt) => map(...pt)), ...tc].every(([x, y]) => x >= 0 && y >= 0 && x <= w && y <= h); // markers + test area inside the image
   const r1 = Math.min(dist(quad[0], quad[1]), dist(quad[3], quad[2])) / Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2]));
   const r2 = Math.min(dist(quad[0], quad[3]), dist(quad[1], quad[2])) / Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]));
   out.tiltDeg = (Math.acos(Math.min(r1, r2, 1)) * 180) / Math.PI; // approximate foreshortening angle
@@ -50,26 +57,26 @@ function* pixels(wp, r) { for (let y = r.y; y < Math.min(r.y + r.h, wp.height); 
 function regionRGB(wp, r) { const ch = [[], [], []]; for (const i of pixels(wp, r)) for (let c = 0; c < 3; c++) ch[c].push(wp.data[i + c]); return ch.map(median); }
 
 function metrics(wp, card, q) {
+  // Glare/exposure are judged only where colour is read: coloured patches + test area. The white patch and the white
+  // paper background are legitimately near-saturated, so including them would flag every good capture.
   const { width: W, height: H, data: d } = wp, g = new Float32Array(W * H);
-  let sat = 0, clip = 0;
-  for (let i = 0; i < W * H; i++) {
-    const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2], y = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
-    g[i] = y; if (r >= q.saturationLevel && gg >= q.saturationLevel && b >= q.saturationLevel) sat++;
-    if (y <= q.clipLowLevel || y >= q.clipHighLevel) clip++;
-  }
+  for (let i = 0; i < W * H; i++) g[i] = 0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2];
   let s1 = 0, s2 = 0, n = 0;
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { const i = y * W + x, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - W] - g[i + W]; s1 += l; s2 += l * l; n++; }
-  let tSat = 0, tN = 0; const ta = rect(wp, card.testArea.center, card.testArea.size);
-  for (const i of pixels(wp, ta)) { tN++; if (d[i] >= q.saturationLevel && d[i + 1] >= q.saturationLevel && d[i + 2] >= q.saturationLevel) tSat++; }
+  const regions = [...card.patches.filter((p) => p.role !== 'white'), card.testArea].map((r) => rect(wp, r.center, r.size));
+  const frac = (test) => { let hit = 0, tot = 0, worst = 0; for (const r of regions) { let h = 0, t = 0; for (const i of pixels(wp, r)) { t++; if (test(d[i], d[i + 1], d[i + 2], g[i / 4])) h++; } hit += h; tot += t; worst = Math.max(worst, t ? h / t : 0); } return Math.max(worst, tot ? hit / tot : 0); };
   const ok = (v) => Number.isFinite(v); // levels left blank in calibration mode -> metric reported as NaN
-  return { blurVar: s2 / n - (s1 / n) ** 2, glareFraction: ok(q.saturationLevel) ? Math.max(sat / (W * H), tN ? tSat / tN : 0) : NaN, clippedFraction: ok(q.clipLowLevel) && ok(q.clipHighLevel) ? clip / (W * H) : NaN };
+  return { blurVar: s2 / n - (s1 / n) ** 2,
+    glareFraction: ok(q.saturationLevel) ? frac((r, gg, b) => r >= q.saturationLevel && gg >= q.saturationLevel && b >= q.saturationLevel) : NaN,
+    clippedFraction: ok(q.clipLowLevel) && ok(q.clipHighLevel) ? frac((r, gg, b, y) => y <= q.clipLowLevel || y >= q.clipHighLevel) : NaN };
 }
 
 // Pass/fail per check against config thresholds. 'na' = could not be computed (card not found).
 export function evaluateQuality(p, cfg) {
   const q = cfg.quality, ok = (cond) => (cond ? 'pass' : 'fail'), has = !!p.warped;
   return [
-    { id: 'reference', label: 'Reference Card', value: `${p.detected}/${p.expected} markers`, status: ok(p.detected === p.expected) },
+    { id: 'reference', label: 'Reference Card', value: `${p.detected}/${p.expected} markers`, status: ok(p.detected === p.expected),
+      detail: p.detected === p.expected ? '' : `Reference card not detected: found ${p.detected} of ${p.expected} markers (expected IDs ${p.expectedIds.join(', ')}; seen: ${p.seenIds?.length ? p.seenIds.slice(0, 6).join(', ') : 'none'}). Use the printed/on-screen card from the Reference Card page.` },
     { id: 'framing', label: 'Test Area', value: has ? (p.inFrame ? 'inside frame' : 'cut off') : '–', status: has ? ok(p.inFrame) : 'na' },
     { id: 'focus', label: 'Focus', value: has ? p.blurVar.toFixed(1) : '–', threshold: `≥ ${q.blurLaplacianVarMin}`, status: has ? ok(p.blurVar >= q.blurLaplacianVarMin) : 'na' },
     { id: 'exposure', label: 'Exposure', value: has ? (p.clippedFraction * 100).toFixed(1) + '% clipped' : '–', threshold: `≤ ${q.clippedFractionMax * 100}%`, status: has ? ok(p.clippedFraction <= q.clippedFractionMax) : 'na' },
@@ -77,7 +84,7 @@ export function evaluateQuality(p, cfg) {
     { id: 'alignment', label: 'Alignment', value: has ? p.tiltDeg.toFixed(1) + '° skew' : '–', threshold: `≤ ${q.tiltDegMax}°`, status: has ? ok(p.tiltDeg <= q.tiltDegMax) : 'na' },
   ];
 }
-export const failureReasons = (checks) => (checks.find((c) => c.id === 'reference')?.status === 'fail' ? checks.filter((c) => c.id === 'reference') : checks.filter((c) => c.status !== 'pass')).map((c) => ({ reference: 'Reference card is not fully visible', framing: 'Test area / card not fully inside frame', focus: 'Insufficient focus (blur)', exposure: 'Poor exposure (clipping)', glare: 'Excessive glare', alignment: 'Incorrect alignment (excess tilt)' }[c.id]));
+export const failureReasons = (checks) => (checks.find((c) => c.id === 'reference')?.status === 'fail' ? checks.filter((c) => c.id === 'reference') : checks.filter((c) => c.status !== 'pass')).map((c) => ({ reference: c.detail || 'Reference card is not fully visible', framing: 'Test area / card not fully inside frame', focus: 'Insufficient focus (blur)', exposure: 'Poor exposure (clipping)', glare: 'Excessive glare', alignment: 'Incorrect alignment (excess tilt)' }[c.id]));
 
 // Calibrate with the card, measure the kit region, return CIELAB. Mean card-patch dE00 is in-sample (fit residual).
 export function measure(p, cfg) {

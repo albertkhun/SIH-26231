@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Camera, Info, CheckCircle2, XCircle, MinusCircle, Timer, RotateCcw, ArrowRight } from 'lucide-react';
-import { api, getDevice, store } from '../lib/api.js';
+import { AR } from 'js-aruco2';
+import { buildSheetSvg, CARD_V2 } from '../../../shared/cardV2.js';
+import { api, getDevice, clearDevice, store } from '../lib/api.js';
 import { processFrame, evaluateQuality, failureReasons, measure } from '../lib/analyse.js';
 import { Shell, Card, Btn, Notice, ConfigMissing } from '../components/ui.jsx';
 
@@ -12,7 +14,8 @@ export default function NewTest() {
   const [checks, setChecks] = useState([]), [gps, setGps] = useState({ status: 'pending' }), [camErr, setCamErr] = useState(''), [err, setErr] = useState('');
   const [shot, setShot] = useState(store.shot); // captured frame stays on screen until Retake
   const [timerStart, setTimerStart] = useState(null), [now, setNow] = useState(Date.now());
-  const dev = getDevice(), live = !shot;
+  const [dev, setDev] = useState(getDevice()), live = !shot;
+  useEffect(() => { if (dev) api.me().catch(() => { clearDevice(); setDev(null); }); }, []); // eslint-disable-line
   useEffect(() => { api.config().then(setCfg).catch((e) => setErr(e.message)); }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t); }, []);
   useEffect(() => { // GPS
@@ -41,10 +44,11 @@ export default function NewTest() {
   const canCapture = live && ready && dev && !camErr && !(timed && !timerStart) && !!video.current?.videoWidth;
   const update = (s) => { store.shot = s; setShot(s); };
 
-  async function capture() {
-    if (!canCapture || busy.current) return;
+  async function capture(fromCanvas) { // fromCanvas: DEMO simulator only; normally a live camera frame
+    if (!fromCanvas && (!canCapture || busy.current)) return;
     setErr('');
-    const v = video.current, cv = document.createElement('canvas'); cv.width = v.videoWidth; cv.height = v.videoHeight; cv.getContext('2d').drawImage(v, 0, 0);
+    let cv = fromCanvas;
+    if (!cv) { const v = video.current; cv = document.createElement('canvas'); cv.width = v.videoWidth; cv.height = v.videoHeight; cv.getContext('2d').drawImage(v, 0, 0); }
     const capturedAt = Date.now(), blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.95)), url = URL.createObjectURL(blob);
     update({ url, state: 'analysing', kit, sample }); // freeze immediately
     try {
@@ -62,16 +66,24 @@ export default function NewTest() {
       nav('/analysis');
     } catch (e) { setErr(e.message); update({ url, state: 'error', kit, sample }); }
   }
+  const BEADS = { positive: [236, 60, 190], borderline: [160, 85, 200], negative: [242, 205, 20] };
+  async function simulate(kind) { // DEMO ONLY: renders the reference sheet with a sample spot, then runs the normal pipeline
+    const d = new AR.Dictionary(CARD_V2.dictionary), W = 1900, H = 1200;
+    const svg = buildSheetSvg((id) => d.generateSVG(id).replace(/^<svg[^>]*>/, '').replace('</svg>', ''), d.markSize, { bead: BEADS[kind] }).replace(/ width="[\d.]+mm" height="[\d.]+mm"/, ` width="${W}" height="${H}"`);
+    const img = new Image(); img.src = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })); await img.decode();
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.getContext('2d').drawImage(img, 0, 0, W, H);
+    await capture(cv);
+  }
   const retake = () => { store.pending = null; update(null); setTimerStart(null); setChecks([]); setErr(''); };
   const inp = 'w-full rounded border border-line bg-white px-2 py-2 text-sm';
   return (<Shell title="New Field Test">
-    {!dev && <Notice tone="err">Device not enrolled. <Link className="underline" to="/">Enrol on the Test Log screen.</Link></Notice>}
+    {!dev && <Notice tone="err">Device not enrolled on this server. <Link className="underline" to="/">Enrol on the Test Log screen.</Link></Notice>}
     {cfg && !ready && <ConfigMissing missing={cfg.status.missing} />}
     <Card><div className="grid grid-cols-2 gap-2"><label className="text-xs font-bold">Kit Type<select disabled={!live} className={inp} value={kit} onChange={(e) => { setKit(e.target.value); setTimerStart(null); }}>
       {cfg && Object.entries(cfg.kits).filter(([k]) => !k.startsWith('_')).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}</select></label>
       <label className="text-xs font-bold">Sample ID<input disabled={!live} className={inp} value={sample} onChange={(e) => setSample(e.target.value)} /></label></div></Card>
 
-    <div onClick={capture} role="button" aria-label="Tap to capture" className={`relative overflow-hidden rounded-lg border-2 bg-black ${shot?.state === 'invalid' ? 'border-red-500' : 'border-brand'} ${canCapture ? 'cursor-pointer' : ''}`}>
+    <div onClick={() => capture()} role="button" aria-label="Tap to capture" className={`relative overflow-hidden rounded-lg border-2 bg-black ${shot?.state === 'invalid' ? 'border-red-500' : 'border-brand'} ${canCapture ? 'cursor-pointer' : ''}`}>
       {live ? <video ref={video} playsInline muted className="aspect-[3/4] w-full object-cover" /> : <img src={shot.url} alt="Captured test" className="aspect-[3/4] w-full object-cover" />}
       {live && <><div className="pointer-events-none absolute inset-6 rounded border-2 border-dashed border-white/80" />
         <span className="absolute left-2 top-2 rounded bg-brand px-2 py-0.5 text-xs font-bold text-white">REFERENCE CARD + TEST AREA</span>
@@ -99,7 +111,9 @@ export default function NewTest() {
         {(checks.length ? checks : [{ id: 'x', label: ready ? 'Searching for card…' : 'Needs configuration', status: 'na', value: '' }]).map((c) => (
           <div key={c.id} className="flex items-center justify-between gap-1"><span>{c.label}</span><span className="flex items-center gap-1 text-xs">{c.value}{ICON[c.status]}</span></div>))}</div>
         <div className="mt-2 text-xs text-slate-600">GPS: {gps.status === 'recorded' ? `±${gps.accuracyM} m` : gps.status}</div></Card>
-      <Btn onClick={capture} disabled={!canCapture}><Camera size={18} />Capture test result</Btn>
+      {cfg?.demo && (<Card title="Demo simulator (no kit needed)"><p className="mb-2 text-xs text-slate-600">Runs the full pipeline on a generated reference sheet. Marked DEMO in the record.</p>
+        <div className="grid grid-cols-3 gap-2 text-xs">{['positive', 'borderline', 'negative'].map((k) => <button key={k} disabled={!ready || !dev} onClick={() => simulate(k)} className="rounded border border-brand px-2 py-2 font-bold uppercase text-brand disabled:opacity-50">{k}</button>)}</div></Card>)}
+      <Btn onClick={() => capture()} disabled={!canCapture}><Camera size={18} />Capture test result</Btn>
       <p className="flex items-center gap-2 text-xs text-brand"><Info size={14} />Live camera capture required. Gallery images are not accepted.</p></>)}
   </Shell>);
 }

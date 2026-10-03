@@ -36,6 +36,11 @@ app.post('/api/devices/enrol', wrap(async (req, res) => {
   await Device.create({ deviceId, operatorId, keyId: kp.keyId, publicKeyPem: kp.publicKeyPem, privateKeyPem: kp.privateKeyPem, tokenHash: sha256(token), enrolledAt: new Date() });
   res.json({ deviceId, operatorId, keyId: kp.keyId, token });
 }));
+app.get('/api/devices/me', wrap(async (req, res) => { // lets the client detect a stale enrolment (new DB, other server, revoked key)
+  const d = await Device.findOne({ tokenHash: sha256(req.get('x-device-token') || '') });
+  if (!d || d.revokedAt) return res.status(401).json({ error: 'Device not enrolled or key revoked' });
+  res.json({ deviceId: d.deviceId, operatorId: d.operatorId, keyId: d.keyId });
+}));
 app.post('/api/devices/:id/revoke', wrap(async (req, res) => {
   if (!ENROL_CODE || req.body.adminCode !== ENROL_CODE) return res.status(403).json({ error: 'Supervisor code required (set ENROL_CODE)' });
   const d = await Device.findOneAndUpdate({ deviceId: req.params.id }, { revokedAt: new Date() }, { new: true });
