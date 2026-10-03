@@ -16,7 +16,7 @@ const NAV = [
   { to: '/', label: 'Test Log', icon: ClipboardList, match: (p) => p === '/' || p.startsWith('/record') },
   { to: '/new', label: 'New Test', icon: Camera, match: (p) => p.startsWith('/new') || p.startsWith('/analysis') },
   { to: '/verify', label: 'Verify', icon: ShieldCheck, match: (p) => p.startsWith('/verify') },
-  { to: '/calibrate', label: 'Calibrate', icon: SlidersHorizontal, match: (p) => p.startsWith('/calibrate') || p.startsWith('/demo-card') },
+  { to: '/calibrate', label: 'Calibrate', icon: SlidersHorizontal, match: (p) => p.startsWith('/calibrate') || p.startsWith('/card') || p.startsWith('/demo-card') },
 ];
 function BottomNav() {
   const { pathname } = useLocation();

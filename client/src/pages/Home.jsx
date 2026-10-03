@@ -18,7 +18,7 @@ export default function Home() {
       : <Card title="Enrol this device"><div className="space-y-2"><input className={inp} placeholder="Operator ID" value={op} onChange={(e) => setOp(e.target.value)} />
         <input className={inp} placeholder="Enrolment code (if required)" value={code} onChange={(e) => setCode(e.target.value)} /><Btn onClick={enrol} disabled={!op.trim()}>Enrol device</Btn></div></Card>}
     <div className="grid grid-cols-2 gap-2"><Link to="/new"><Btn><Camera size={18} />New Field Test</Btn></Link><Link to="/verify"><Btn outline><ShieldCheck size={18} />Verify</Btn></Link></div>
-    <div className="flex justify-between text-xs font-semibold text-brand"><Link to="/calibrate" className="underline">Calibration mode</Link>{cfg?.demo && <Link to="/demo-card" className="underline">Demo card</Link>}</div>
+    <div className="flex justify-between text-xs font-semibold text-brand"><Link to="/calibrate" className="underline">Calibration mode</Link><Link to="/card" className="underline">Reference card</Link></div>
     <Card title="Search log" icon={Search}><div className="space-y-2">
       <input className={inp} placeholder="Record ID or Sample ID" value={f.q} onChange={set('q')} />
       <div className="grid grid-cols-2 gap-2"><select className={inp} value={f.kit} onChange={set('kit')}><option value="">All kits</option>{cfg && Object.entries(cfg.kits).filter(([k]) => !k.startsWith('_')).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}</select>

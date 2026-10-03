@@ -77,7 +77,7 @@ export function evaluateQuality(p, cfg) {
     { id: 'alignment', label: 'Alignment', value: has ? p.tiltDeg.toFixed(1) + '° skew' : '–', threshold: `≤ ${q.tiltDegMax}°`, status: has ? ok(p.tiltDeg <= q.tiltDegMax) : 'na' },
   ];
 }
-export const failureReasons = (checks) => checks.filter((c) => c.status !== 'pass').map((c) => ({ reference: 'Reference card is not fully visible', framing: 'Test area / card not fully inside frame', focus: 'Insufficient focus (blur)', exposure: 'Poor exposure (clipping)', glare: 'Excessive glare', alignment: 'Incorrect alignment (excess tilt)' }[c.id]));
+export const failureReasons = (checks) => (checks.find((c) => c.id === 'reference')?.status === 'fail' ? checks.filter((c) => c.id === 'reference') : checks.filter((c) => c.status !== 'pass')).map((c) => ({ reference: 'Reference card is not fully visible', framing: 'Test area / card not fully inside frame', focus: 'Insufficient focus (blur)', exposure: 'Poor exposure (clipping)', glare: 'Excessive glare', alignment: 'Incorrect alignment (excess tilt)' }[c.id]));
 
 // Calibrate with the card, measure the kit region, return CIELAB. Mean card-patch dE00 is in-sample (fit residual).
 export function measure(p, cfg) {
