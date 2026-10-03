@@ -12,7 +12,7 @@ export default function Analysis() {
   if (!p || !cfg) return <Shell title="Test Analysis" />;
   const { meta } = p, kit = cfg.kits[meta.kit], c = meta.calibration, lab = meta.measurement.lab, cmp = classify(lab, kit), R = RESULT[cmp.result];
   const f = (v) => (v == null ? '–' : v.toFixed(1)), ref = (o) => cmp.refs.find((r) => r.outcome === o);
-  const save = async () => { setBusy(true); try { const out = await api.save(p.blob, meta); store.pending = null; nav(`/record/${out.recordId}`); } catch (e) { setErr(e.message); setBusy(false); } };
+  const save = async () => { setBusy(true); try { const out = await api.save(p.blob, meta); store.pending = null; store.shot = null; nav(`/record/${out.recordId}`); } catch (e) { setErr(e.message); setBusy(false); } };
   return (<Shell title="Test Analysis">
     <Card title="Test Information" icon={FileText}><Grid items={[['Kit', kit.name], ['Sample ID', meta.sampleId], ['Captured', new Date(meta.timestamp).toLocaleTimeString('en-GB')]]} /></Card>
     <Card title="Captured Test Image" icon={Image}><img src={p.url} alt="Captured test" className="w-full rounded" /></Card>

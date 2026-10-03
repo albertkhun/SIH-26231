@@ -13,4 +13,4 @@ export const api = {
   save: (blob, meta) => { const f = new FormData(); f.append('image', blob, 'capture.jpg'); f.append('meta', JSON.stringify(meta)); return fetch(B + '/api/records', { method: 'POST', headers: { 'x-device-token': getDevice()?.token || '' }, body: f }).then(j); },
 };
 export const imageUrl = (id) => `${B}/api/records/${encodeURIComponent(id)}/image?t=${Date.now()}`;
-export const store = { pending: null };
+export const store = { pending: null, shot: null }; // pending: valid capture awaiting save; shot: last captured frame kept on screen until Retake
